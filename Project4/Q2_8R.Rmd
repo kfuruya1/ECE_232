@@ -1,0 +1,434 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+if (!require("igraph")) install.packages("igraph")
+library ("igraph")
+if (!require("clevr")) install.packages("clevr")
+library ("clevr")
+```
+
+```{r}
+unzip('finance_data.zip')
+```
+
+```{r}
+path = "finance_data/data/"
+out.file<-""
+file.names <- dir(path, pattern =".csv")
+m <- matrix(, nrow = 0, ncol = 765)
+sectors.table <- read.table("finance_data/Name_sector.csv",header=TRUE, sep=",", stringsAsFactors=TRUE)
+sectors = c()
+sectors.names <- c()
+for(i in 1:length(file.names)){
+    file <- read.table(paste("finance_data/data/",file.names[i],sep = ""),header=TRUE, sep=",", stringsAsFactors=FALSE)
+    if(length(file$Close)==765){
+        m <- rbind(m, matrix(file$Close, nrow=1, ncol=765))
+        mystr <- substr(file.names[i], 1, nchar(file.names[i])-4)
+        sector <- sectors.table$Sector[which(sectors.table$Symbol == mystr)]
+#         print(sector)
+#        sectors = c(sectors, as.factor(sector))
+        sectors.names = c(sectors.names, toString(sector))
+    }
+}
+com_num = length(sectors.names)
+data_num = ncol(m)
+sector.set<-as.factor(sectors.names)
+sectors.index<-as.numeric(sector.set)
+num_sector <- length(unique(sectors.index))
+table(sector.set)
+```
+```{r}
+print(nrow(m))
+test <- m[nrow(m)]
+print(test[1])
+```
+
+```{r}
+qit <- function(p, t){
+  q <- (p[t] - p[t-1])/p[t-1]
+  return(q)
+}
+
+rit <- function(p, t){
+  r <- log(1+qit(p, t))
+  return(r)
+}
+pij <- function(i, j){
+  ri <- 0
+  rj <- 0
+  ri_sum <- 0
+  rj_sum <- 0
+  rij <- 0
+  ri2 <- 0
+  rj2 <- 0
+  rt <- length(i)
+  for (t in 2:rt){
+    ri <- rit(i, t)
+    rj <- rit(j, t)
+    ri_sum <- ri_sum + ri
+    rj_sum <- rj_sum + rj
+    rij <- rij + (ri*rj)
+    ri2 <- ri2 + ri^2
+    rj2 <- rj2 + rj^2
+  }
+  a <- rij/rt
+  b <- ri_sum/rt
+  c <- rj_sum/rt
+  d <- ri2/rt
+  e <- rj2/rt
+
+
+  p <- (a - (b*c))/sqrt((d-(a^2))*(e-(b^2)))
+  return(p)
+}
+
+wij <- function(i, j){
+  w <- sqrt(2*(1-pij(i, j)))
+  return(w)
+}
+
+#correlation 
+cal_cor<-function(mtrx){
+  edge_weights <- list()
+  edge_names <- list()
+  graph_info <- list()
+  lngth <- nrow(mtrx)
+  for (rw in 1:lngth){
+    print(rw)
+    for (rw2 in 1:lngth){
+      #print(rw2)
+      edg <- wij(mtrx[rw,], mtrx[rw2,])
+      edge_weights <- append(edge_weights, edg)
+      #tple <- c(rw, rw2)
+      #edge_names <- append(edge_names, tple)
+      #n_e <- c(rw, rw2, edg)
+      #graph_info <- append(graph_info, n_e)
+    }
+  }
+  #val <- c(edge_weights, edge_names, graph_info)  
+  #return(val)
+  return(edge_weights)
+  }
+```
+
+```{r}
+qit(m[1,], 2)
+rit(m[1,], 2)
+pij(m[1,], m[2,])
+```
+
+```{r}
+graph_weights <- cal_cor(m)
+
+```
+
+```{r}
+print(length(graph_weights))
+```
+
+```{r}
+#wghts <- graph_list[1]
+#nms <- graph_list[2]
+#g_info <- graph_list[3]
+
+#print(graph_list[2])
+graph_weights = unlist(graph_weights)
+weights_only <- na.omit(graph_weights)
+
+hist(weights_only, main = "Distribution of un-normalized weights", xlab = "Weights")
+```
+
+
+
+```{r}
+print(graph_weights[1:3])
+```
+
+
+```{r}
+
+graph_weights[is.na(graph_weights)] <- 0
+
+```
+
+```{r}
+#temp <- cal_cor(m)
+d <- matrix(graph_weights, ncol = 494)#check formula from question pdf
+g<-graph_from_adjacency_matrix(d, mode ="upper", weighted = TRUE, diag = TRUE,
+  add.colnames = NULL, add.rownames = NA)
+fname <- matrix(d)
+save(fname, file = "distance.RData")
+```
+
+```{r}
+hist(E(g)$weight)
+```
+
+```{r}
+print(length(E(g)$weight))
+```
+
+```{r}
+#3
+mst_g <- mst(graph = g, weights = E(g)$weight) #use the mst function  
+colbar <- rainbow(num_sector,s = 0.8, v = 1)
+plot(mst_g, vertex.size=3, vertex.label=NA, vertex.color=colbar[sectors.index])
+legend('topright',legend=levels(sector.set),pch=21, pt.bg=colbar)
+```
+
+```{r}
+test <- which(sectors.index == 5)
+test2 <- c(1, 32, 494)
+print(test)
+print(which(test2 %in% test))
+test3 <- (neighbors(mst_g, 433))
+print(test3)
+print(which(test3 %in% test))
+```
+
+```{r}
+#4
+#cluster
+wc_daily <- walktrap.community(mst_g, E(mst_g)$weight, steps = 1000) #you can use walktrap.community  
+length(wc_daily)
+plot(wc_daily, mst_g, vertex.size=3, vertex.label=NA, vertex.color=sectors.index)
+```
+
+```{r}
+#get metrics
+true<- c(sectors.index)
+pred <- c(wc_daily$membership)
+homogeneity(true, pred)
+completeness(true,pred)
+```
+
+```{r}
+#5
+p1 <- 0
+p2 <- 0
+for (nd in V(mst_g)) {
+  temp <- neighbors(mst_g, nd)
+  n <- which(sectors.index == sectors.index[nd])
+  q <- length(which(temp %in% n))
+  p1 <- p1 + q/(length(temp))
+  p2 <- p2 + (length(n)/494)
+  #print(q)
+}
+alpha_score1 <- p1/494
+alpha_score2 <- p2/494
+print(alpha_score1)
+print(alpha_score2)
+```
+
+```{r}
+#6
+file <- read.table(paste("finance_data/data/",file.names[1],sep = ""),header=TRUE, sep=",", stringsAsFactors=FALSE)
+Date_data<- file$Date
+weekdays_data <-weekdays(as.Date(Date_data)) #this gives weekday name 
+```
+  
+  
+```{r}
+test <- (which(weekdays_data == "Monday"))
+#print(test)
+weekly_m_m <- matrix(, nrow=0, ncol=143)
+#counter = 1
+m_rows = nrow(m)
+for (i in 1:m_rows){
+  #print(counter)
+  temp <- m[i,]
+  temp2 <- temp[test]
+  weekly_m_m <- rbind(weekly_m_m, matrix(temp2, nrow = 1, ncol = 143))
+  #counter = counter + 1
+}
+```
+
+```{r}
+print(length(weekly_m_m))
+```
+
+```{r}
+
+#weekly_m_m <- m[which(weekdays_data == "Monday")] #select data where week day is monday 
+week_m_cor <- cal_cor(weekly_m_m)
+```
+
+```{r}
+week_m_cor = unlist(week_m_cor)
+weights_m_only <- na.omit(week_m_cor)
+
+hist(weights_m_only, main = "Distribution of un-normalized weights for only Monday", xlab = "Weights")
+```
+
+```{r}
+
+week_m_cor[is.na(week_m_cor)] <- 0 
+```
+
+```{r}
+week_m_d <- matrix(week_m_cor, ncol = 494) #check formula from question pdf
+
+
+week_m_g<-graph_from_adjacency_matrix(week_m_d, mode ="upper", weighted = TRUE, diag = TRUE,
+  add.colnames = NULL, add.rownames = NA)
+
+hist(E(week_m_g)$weight)
+```
+
+```{r}
+print(length(E(week_m_g)$weight))
+```
+
+```{r}
+mst_week_m <- mst(graph = week_m_g, weights = E(week_m_g)$weight)#use the mst function
+colbar <- rainbow(num_sector,s = 0.8, v = 1)
+plot(mst_week_m, vertex.size=3, vertex.label=NA, vertex.color=colbar[sectors.index])
+legend('topleft',legend=levels(sector.set),pch=21, pt.bg=colbar)
+```
+
+```{r}
+#cluster
+wc_weekly <- walktrap.community(mst_week_m, E(mst_week_m)$weight, steps = 1000)#you can use walktrap.community. ensure that same algo is used for daily, monthly, weekly
+length(wc_weekly)
+plot(wc_weekly, mst_week_m, vertex.size=3, vertex.label=NA, vertex.color=sectors.index)
+
+```
+
+```{r}
+#get metrics
+true<- c(sectors.index)
+pred <- c(wc_weekly$membership)
+homogeneity(true, pred)
+completeness(true,pred)
+```
+
+```{r}
+p1_w <- 0
+p2_w <- 0
+for (nd in V(mst_week_m)) {
+  temp <- neighbors(mst_week_m, nd)
+  n <- which(sectors.index == sectors.index[nd])
+  q <- length(which(temp %in% n))
+  p1_w <- p1_w + q/(length(temp))
+  p2_w <- p2_w + (length(n)/494)
+  #print(q)
+}
+alpha_score1_w <- p1_w/494
+alpha_score2_w <- p2_w/494
+print(alpha_score1_w)
+print(alpha_score2_w)
+
+```
+
+```{r}
+#7
+temp <- Date_data[1]
+print(temp)
+print(substr(temp, 9, 10))
+
+dates_num <- list()
+for (d in Date_data){
+  temp <- substr(d, 9, 10)
+  dates_num <- append(dates_num, temp)
+}
+#dates_num <- #format(#write code here)
+print(length(dates_num)) 
+```
+
+```{r}
+print(dates_num)
+```
+
+```{r}
+m_15 <- which(dates_num == "15")
+print(length(m_15))
+monthly_15_m <- matrix(, nrow=0, ncol=25)
+#counter = 1
+m_rows = nrow(m)
+for (i in 1:m_rows){
+  #print(counter)
+  temp <- m[i,]
+  temp2 <- temp[m_15]
+  monthly_15_m <- rbind(monthly_15_m, matrix(temp2, nrow = 1, ncol = 25))
+  #counter = counter + 1
+}
+```
+
+```{r}
+#monthly_15_m <- #select data where date is 15 
+monthly_15_cor <- cal_cor(monthly_15_m )
+
+```
+```{r}
+monthly_15_cor = unlist(monthly_15_cor) 
+weights_15_only <- na.omit(monthly_15_cor)
+
+hist(weights_15_only, main = "Distribution of un-normalized weights monthly", xlab = "Weights")
+```
+```{r}
+monthly_15_cor[is.na(monthly_15_cor)] <- 0 
+```
+
+```{r}
+monthly_15_d <- matrix(monthly_15_cor, ncol = 494)#check formula from question pdf
+month_15_g<-graph_from_adjacency_matrix(monthly_15_d, mode ="upper", weighted = TRUE, diag = TRUE,
+  add.colnames = NULL, add.rownames = NA)
+
+hist(E(month_15_g)$weight)
+```
+```{r}
+print(length(E(month_15_g)$weight))
+```
+
+```{r}
+mst_month_m <- mst(graph = month_15_g, weights = E(month_15_g)$weight)#use the mst function
+colbar <- rainbow(num_sector,s = 0.8, v = 1)
+plot(mst_month_m, vertex.size=3, vertex.label=NA, vertex.color=colbar[sectors.index])
+legend('topleft',legend=levels(sector.set),pch=21, pt.bg=colbar)
+```
+
+```{r}
+#cluster
+wc_monthly <- walktrap.community(mst_month_m, E(mst_month_m)$weight, steps = 1000)#you can use walktrap.community. ensure that same algo is used for daily, monthly, weekly
+length(wc_monthly)
+plot(wc_monthly, mst_month_m, vertex.size=3, vertex.label=NA, vertex.color=sectors.index)
+
+```
+
+```{r}
+#get metrics
+true<- c(sectors.index)
+pred <- c(wc_monthly$membership)
+homogeneity(true, pred)
+completeness(true,pred)
+```
+
+```{r}
+p1_m <- 0
+p2_m <- 0
+for (nd in V(mst_month_m)) {
+  temp <- neighbors(mst_month_m, nd)
+  n <- which(sectors.index == sectors.index[nd])
+  q <- length(which(temp %in% n))
+  p1_m <- p1_m + q/(length(temp))
+  p2_m <- p2_m + (length(n)/494)
+  #print(q)
+}
+alpha_score1_m <- p1_m/494
+alpha_score2_m <- p2_m/494
+print(alpha_score1_m)
+print(alpha_score2_m)
+
+```
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
